@@ -1017,58 +1017,84 @@ void ShaderGraph::disconnect(ShaderNode* node) const
 void ShaderGraph::optimize(GenContext& context)
 {
     size_t numEdits = 0;
-    for (ShaderNode* node : getNodes())
-    {
-        if (node->hasClassification(ShaderNode::Classification::CONSTANT))
+    std::vector<ShaderNode*> toProcess = getNodes();
+    while (!toProcess.empty()) {
+        std::set<ShaderNode*> toReconsider;
+        for (ShaderNode* node : getNodes())
         {
-            // Constant nodes can be elided by moving their value downstream.
-            bypass(context, node, 0);
-            ++numEdits;
-        }
-        else if (node->hasClassification(ShaderNode::Classification::DOT))
-        {
-            // Dot nodes without modifiers can be elided by moving their connection downstream.
-            ShaderInput* in = node->getInput("in");
-            if (in->getChannels().empty())
+            if (node->hasClassification(ShaderNode::Classification::CONSTANT))
             {
-                bypass(context, node, 0);
+                // Constant nodes can be elided by moving their value downstream.
+                bypass(toReconsider, context, node, 0, 0, true);
                 ++numEdits;
             }
-        }
-        else if (node->hasClassification(ShaderNode::Classification::IFELSE))
-        {
-            // Check if we have a constant conditional expression
-            ShaderInput* intest = node->getInput("intest");
-            if (!intest->getConnection())
+            else if (node->hasClassification(ShaderNode::Classification::DOT))
             {
-                // Find which branch should be taken
-                ShaderInput* cutoff = node->getInput("cutoff");
-                ValuePtr value = intest->getValue();
-                const float intestValue = value ? value->asA<float>() : 0.0f;
-                const int branch = (intestValue <= cutoff->getValue()->asA<float>() ? 2 : 3);
-
-                // Bypass the conditional using the taken branch
-                bypass(context, node, branch);
-
-                ++numEdits;
+                // Filename Dot nodes must be elided (as if their "in" input was marked "uniform").
+                ShaderInput* in = node->getInput("in");
+                if (in->getType() == Type::FILENAME)
+                {
+                    bypass(toReconsider, context, node, 0, 0, true);
+                    ++numEdits;
+                }
             }
-        }
-        else if (node->hasClassification(ShaderNode::Classification::SWITCH))
-        {
-            // Check if we have a constant conditional expression
-            const ShaderInput* which = node->getInput("which");
-            if (!which->getConnection())
+            else if (node->hasClassification(ShaderNode::Classification::IFELSE))
             {
-                // Find which branch should be taken
-                ValuePtr value = which->getValue();
-                const int branch = int(value == nullptr ? 0 : (which->getType() == Type::FLOAT ? value->asA<float>() : value->asA<int>()));
+                // Check if we have a constant conditional expression
+                ShaderInput* intest = node->getInput("intest");
+                if (!intest->getConnection() && intest->isUniform())
+                {
+                    // Find which branch should be taken
+                    ShaderInput* cutoff = node->getInput("cutoff");
+                    ValuePtr value = intest->getValue();
+                    const float intestValue = value ? value->asA<float>() : 0.0f;
+                    const int branch = (intestValue <= cutoff->getValue()->asA<float>() ? 2 : 3);
 
-                // Bypass the conditional using the taken branch
-                bypass(context, node, branch);
+                    // Bypass the conditional using the taken branch
+                    bypass(toReconsider, context, node, branch);
 
-                ++numEdits;
+                    ++numEdits;
+                }
             }
+            else if (node->hasClassification(ShaderNode::Classification::SWITCH))
+            {
+                // Check if we have a constant conditional expression
+                const ShaderInput* which = node->getInput("which");
+                if (!which->getConnection() && which->isUniform())
+                {
+                    // Find which branch should be taken
+                    ValuePtr value = which->getValue();
+                    const int branch = int(value == nullptr ? 0 : (which->getType() == Type::FLOAT ? value->asA<float>() : value->asA<int>()));
+
+                    // Bypass the conditional using the taken branch
+                    bypass(toReconsider, context, node, branch);
+
+                    ++numEdits;
+                }
+            }
+            else if (node->hasClassification(ShaderNode::Classification::MIX))
+            {
+                // Check if we have one of the mix boundary values
+                const ShaderInput* mix = node->getInput("mix");
+                if (!mix->getConnection() && mix->isUniform() && mix->getType() == Type::FLOAT)
+                {
+                    ValuePtr value = mix->getValue();
+                    float pinnedValue = value->asA<float>();
+                    if (pinnedValue == 1.0f) {
+                        // Bypass "fg" input
+                        bypass(toReconsider, context, node, 0);
+                        ++numEdits;
+                    } else if (pinnedValue == 0.0f) {
+                        // Bypass "bg" input
+                        bypass(toReconsider, context, node, 1);
+                        ++numEdits;
+                    }
+                }
+            }
+            // TODO: All other conditionals with isUniform inputs that can be computed and elided here.
         }
+
+        toProcess.assign(toReconsider.begin(), toReconsider.end());
     }
 
     if (numEdits > 0)
@@ -1112,10 +1138,12 @@ void ShaderGraph::optimize(GenContext& context)
     }
 }
 
-void ShaderGraph::bypass(GenContext& context, ShaderNode* node, size_t inputIndex, size_t outputIndex)
+void ShaderGraph::bypass(std::set<ShaderNode*> &toReconsider, GenContext& context, ShaderNode* node, size_t inputIndex, size_t outputIndex, bool setUniform)
 {
     ShaderInput* input = node->getInput(inputIndex);
     ShaderOutput* output = node->getOutput(outputIndex);
+
+std::cerr << "Bypassing " << input->getFullName() << std::endl;
 
     ShaderOutput* upstream = input->getConnection();
     if (upstream)
@@ -1164,6 +1192,16 @@ void ShaderGraph::bypass(GenContext& context, ShaderNode* node, size_t inputInde
                                                                                                downstream->getType()));
                 downstream->setType(downstream->getType());
                 downstream->setChannels(EMPTY_STRING);
+            }
+
+            if (setUniform || input->isUniform()) {
+std::cerr << "       Setting uniform: " << downstream->getFullName() << std::endl;
+                if (!downstream->isUniform() && !toReconsider.count(downstream->getNode())) {
+                    // Toggled uniform state. Maybe we can optimize further.
+std::cerr << "       Will revisit: " << downstream->getNode()->getName() << std::endl;
+                    toReconsider.insert(downstream->getNode());
+                }
+                downstream->setUniform();
             }
         }
     }

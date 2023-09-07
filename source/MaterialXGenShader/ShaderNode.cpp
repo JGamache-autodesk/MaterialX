@@ -134,6 +134,7 @@ const ShaderNodePtr ShaderNode::NONE = createEmptyNode();
 
 const string ShaderNode::CONSTANT = "constant";
 const string ShaderNode::DOT = "dot";
+const string ShaderNode::MIX = "mix";
 const string ShaderNode::IMAGE = "image";
 const string ShaderNode::COMPARE = "compare";
 const string ShaderNode::SWITCH = "switch";
@@ -299,6 +300,10 @@ ShaderNodePtr ShaderNode::create(const ShaderGraph* parent, const string& name, 
     else if (nodeDef.getNodeString() == SWITCH)
     {
         newNode->_classification = Classification::TEXTURE | Classification::CONDITIONAL | Classification::SWITCH;
+    }
+    else if (nodeDef.getNodeString() == MIX)
+    {
+        newNode->_classification = Classification::TEXTURE | Classification::MIX;
     }
     // Third, check for file texture classification by group name
     else if (groupName == TEXTURE2D_GROUPNAME || groupName == TEXTURE3D_GROUPNAME)

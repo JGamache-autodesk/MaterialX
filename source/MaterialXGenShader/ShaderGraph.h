@@ -164,7 +164,7 @@ class MX_GENSHADER_API ShaderGraph : public ShaderNode
     /// Bypass a node for a particular input and output,
     /// effectively connecting the input's upstream connection
     /// with the output's downstream connections.
-    void bypass(GenContext& context, ShaderNode* node, size_t inputIndex, size_t outputIndex = 0);
+    void bypass(std::set<ShaderNode*>& toReconsider, GenContext& context, ShaderNode* node, size_t inputIndex, size_t outputIndex = 0, bool setUniform = false);
 
     /// For inputs and outputs in the graph set the variable names to be used
     /// in generated code. Making sure variable names are valid and unique
