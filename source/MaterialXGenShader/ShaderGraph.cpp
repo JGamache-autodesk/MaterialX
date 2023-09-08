@@ -1020,7 +1020,7 @@ void ShaderGraph::optimize(GenContext& context)
     std::vector<ShaderNode*> toProcess = getNodes();
     while (!toProcess.empty()) {
         std::set<ShaderNode*> toReconsider;
-        for (ShaderNode* node : getNodes())
+        for (ShaderNode* node : toProcess)
         {
             if (node->hasClassification(ShaderNode::Classification::CONSTANT))
             {
@@ -1030,29 +1030,15 @@ void ShaderGraph::optimize(GenContext& context)
             }
             else if (node->hasClassification(ShaderNode::Classification::DOT))
             {
-                // Filename Dot nodes must be elided (as if their "in" input was marked "uniform").
                 ShaderInput* in = node->getInput("in");
                 if (in->getType() == Type::FILENAME)
                 {
+                    // Filename Dot nodes must be elided (as if their "in" input was marked "uniform").
                     bypass(toReconsider, context, node, 0, 0, true);
                     ++numEdits;
-                }
-            }
-            else if (node->hasClassification(ShaderNode::Classification::IFELSE))
-            {
-                // Check if we have a constant conditional expression
-                ShaderInput* intest = node->getInput("intest");
-                if (!intest->getConnection() && intest->isUniform())
-                {
-                    // Find which branch should be taken
-                    ShaderInput* cutoff = node->getInput("cutoff");
-                    ValuePtr value = intest->getValue();
-                    const float intestValue = value ? value->asA<float>() : 0.0f;
-                    const int branch = (intestValue <= cutoff->getValue()->asA<float>() ? 2 : 3);
-
-                    // Bypass the conditional using the taken branch
-                    bypass(toReconsider, context, node, branch);
-
+                } else if (in->isUniform()) {
+                    // Can participate in constant propagation if the input became indirectly constant:
+                    bypass(toReconsider, context, node, 0);
                     ++numEdits;
                 }
             }
@@ -1074,7 +1060,7 @@ void ShaderGraph::optimize(GenContext& context)
             }
             else if (node->hasClassification(ShaderNode::Classification::MIX))
             {
-                // Check if we have one of the mix boundary values
+                // Check if we have one of the mix boundary values as constant
                 const ShaderInput* mix = node->getInput("mix");
                 if (!mix->getConnection() && mix->isUniform() && mix->getType() == Type::FLOAT)
                 {
@@ -1091,7 +1077,63 @@ void ShaderGraph::optimize(GenContext& context)
                     }
                 }
             }
-            // TODO: All other conditionals with isUniform inputs that can be computed and elided here.
+            else if (node->hasClassification(ShaderNode::Classification::IFGREATER))
+            {
+                // Constant propagation if possible:
+                const ShaderInput* value1 = node->getInput("value1");
+                const ShaderInput* value2 = node->getInput("value2");
+                if (!value1->getConnection() && value1->isUniform() &&
+                    !value2->getConnection() && value2->isUniform())
+                {
+                    ValuePtr val1 = value1->getValue();
+                    ValuePtr val2 = value2->getValue();
+                    if (val1->isA<float>()) {
+                        bypass(toReconsider, context, node, val1->asA<float>() > val2->asA<float>() ? 2 : 3);
+                        ++numEdits;
+                    } else if (val1->isA<int>()) {
+                        bypass(toReconsider, context, node, val1->asA<int>() > val2->asA<int>() ? 2 : 3);
+                        ++numEdits;
+                    }
+                }
+            }
+            else if (node->hasClassification(ShaderNode::Classification::IFGREATEREQ))
+            {
+                // Constant propagation if possible:
+                const ShaderInput* value1 = node->getInput("value1");
+                const ShaderInput* value2 = node->getInput("value2");
+                if (!value1->getConnection() && value1->isUniform() &&
+                    !value2->getConnection() && value2->isUniform())
+                {
+                    ValuePtr val1 = value1->getValue();
+                    ValuePtr val2 = value2->getValue();
+                    if (val1->isA<float>()) {
+                        bypass(toReconsider, context, node, val1->asA<float>() >= val2->asA<float>() ? 2 : 3);
+                        ++numEdits;
+                    } else if (val1->isA<int>()) {
+                        bypass(toReconsider, context, node, val1->asA<int>() >= val2->asA<int>() ? 2 : 3);
+                        ++numEdits;
+                    }
+                }
+            }
+            else if (node->hasClassification(ShaderNode::Classification::IFEQUAL))
+            {
+                // Constant propagation if possible:
+                const ShaderInput* value1 = node->getInput("value1");
+                const ShaderInput* value2 = node->getInput("value2");
+                if (!value1->getConnection() && value1->isUniform() &&
+                    !value2->getConnection() && value2->isUniform())
+                {
+                    ValuePtr val1 = value1->getValue();
+                    ValuePtr val2 = value2->getValue();
+                    if (val1->isA<float>()) {
+                        bypass(toReconsider, context, node, val1->asA<float>() == val2->asA<float>() ? 2 : 3);
+                        ++numEdits;
+                    } else if (val1->isA<int>()) {
+                        bypass(toReconsider, context, node, val1->asA<int>() == val2->asA<int>() ? 2 : 3);
+                        ++numEdits;
+                    }
+                }
+            }
         }
 
         toProcess.assign(toReconsider.begin(), toReconsider.end());

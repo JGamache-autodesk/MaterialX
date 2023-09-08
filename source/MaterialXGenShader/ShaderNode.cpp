@@ -135,8 +135,10 @@ const ShaderNodePtr ShaderNode::NONE = createEmptyNode();
 const string ShaderNode::CONSTANT = "constant";
 const string ShaderNode::DOT = "dot";
 const string ShaderNode::MIX = "mix";
+const string ShaderNode::IFGREATER = "ifgreater";
+const string ShaderNode::IFGREATEREQ = "ifgreatereq";
+const string ShaderNode::IFEQUAL = "ifequal";
 const string ShaderNode::IMAGE = "image";
-const string ShaderNode::COMPARE = "compare";
 const string ShaderNode::SWITCH = "switch";
 const string ShaderNode::SURFACESHADER = "surfaceshader";
 const string ShaderNode::SCATTER_MODE = "scatter_mode";
@@ -293,13 +295,21 @@ ShaderNodePtr ShaderNode::create(const ShaderGraph* parent, const string& name, 
     {
         newNode->_classification = Classification::TEXTURE | Classification::DOT;
     }
-    else if (nodeDef.getNodeString() == COMPARE)
-    {
-        newNode->_classification = Classification::TEXTURE | Classification::CONDITIONAL | Classification::IFELSE;
-    }
     else if (nodeDef.getNodeString() == SWITCH)
     {
         newNode->_classification = Classification::TEXTURE | Classification::CONDITIONAL | Classification::SWITCH;
+    }
+    else if (nodeDef.getNodeString() == IFGREATER)
+    {
+        newNode->_classification = Classification::TEXTURE | Classification::CONDITIONAL | Classification::IFGREATER;
+    }
+    else if (nodeDef.getNodeString() == IFGREATEREQ)
+    {
+        newNode->_classification = Classification::TEXTURE | Classification::CONDITIONAL | Classification::IFGREATEREQ;
+    }
+    else if (nodeDef.getNodeString() == IFEQUAL)
+    {
+        newNode->_classification = Classification::TEXTURE | Classification::CONDITIONAL | Classification::IFEQUAL;
     }
     else if (nodeDef.getNodeString() == MIX)
     {
